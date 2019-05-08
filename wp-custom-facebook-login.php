@@ -256,8 +256,6 @@ class Custom_Facebook_Login {
 			$query_params = '';
 
 				if(isset($_GET['error_code'])){
-					echo $_GET['error_code'];
-					die();
 					$query_params = '?error_code'.$_GET['error_code'];
 				}
 
