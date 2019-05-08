@@ -1,14 +1,6 @@
 <?php
 
-$params = array(
-	'client_id'     => '',
-	'redirect_uri'  => $redirect_uri,
-	'response_type' => 'code',
-	'scope'         => 'email'
-);
-
- 
-$login_url = 'https://www.facebook.com/dialog/oauth?' . urldecode( http_build_query( $params ) );
+$facebook_app_id = get_option("cfl_facebook_app_id" );
 
 ?>
 
@@ -34,10 +26,10 @@ $login_url = 'https://www.facebook.com/dialog/oauth?' . urldecode( http_build_qu
 		</p>
 	<?php endif; ?>
 
-		<form name="loginform" id="loginform" action="http://wp-user-test.local/wp-login.php" method="post">
+		<form name="loginform" id="loginform" action="<?php echo SITE_LOGIN;?>" method="post">
 			
-				<input type="hidden" name="client_id" id="client_id" class="input" value="<?php echo '860663164300692';?>">
-				<input type="hidden" name="redirect_uri" id="redirect_uri" class="input" value="http://wp-user-test.local/wp-login.php" size="20">
+				<input type="hidden" name="client_id" id="client_id" class="input" value="<?php echo $facebook_app_id;?>">
+				<input type="hidden" name="redirect_uri" id="redirect_uri" class="input" value="<?php echo SITE_LOGIN;?>" size="20">
 			
 			<p class="login-submit">
 				<input type="submit" name="wp-submit" id="wp-submit" class="button button-primary" value="Sign In via Facebook">

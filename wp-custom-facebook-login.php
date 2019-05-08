@@ -7,7 +7,7 @@
  * Text Domain:       wp_custom_facebook_login
  */
 
-define("FBIDS_JSON",     "js/fbids.json");
+define("SITE_LOGIN", get_site_url()."/wp-login.php");
 
 class Custom_Facebook_Login {
 
@@ -28,23 +28,77 @@ class Custom_Facebook_Login {
 		add_filter( 'authenticate', array( $this, 'cfl_authenticate_validation' ), 101, 3 );
 		add_filter( 'login_redirect', array( $this, 'cfl_redirect_after_successful_login' ), 10, 3 );
 
-        // Add Javascript and CSS for front-end display
-        add_action('wp_enqueue_scripts', array($this,'cfl_facebook_scripts'));
-
 		add_shortcode( 'facebook-login-form', array( $this, 'cfl_facebook_login_form' ) );
-	}
 
+		add_action( 'admin_menu', array( $this, 'cfl_facebook_admin_menu' ) );
+		add_action( 'admin_post_facebook_app_form_response', array( $this, 'cfl_facebook_facebook_app_form_response'));
+	}
 
 	/*
-	Custom plugin scripts
+		Main menu
 	*/
 
-	public function cfl_facebook_scripts() {
-
-		wp_enqueue_script('cflfbids', plugins_url(FBIDS_JSON, __FILE__), array('jquery'), '1.0', true);
-
+	public function cfl_facebook_admin_menu() {
+		add_menu_page( 'Facebook login', 'Facebook login', 'manage_options', 'cfl-facebook-admin-page.php', array( $this,'cfl_facebook_admin_page'), 'dashicons-tickets', 6  );
 	}
 
+	/*
+	 * Callback for the add_submenu_page action hook
+	 * 
+	 */
+	public function cfl_facebook_admin_page() {
+		//show the form
+		include_once( 'templates/tpl-facebook-app-form.php' );
+	}
+
+
+	public function cfl_facebook_facebook_app_form_response() {
+		
+		if( isset( $_POST['facebook_app_add_nonce'] ) && wp_verify_nonce( $_POST['facebook_app_add_nonce'], 'facebook_app_add_form_nonce') ) {
+			$app_id = sanitize_text_field( $_POST['app_id'] );
+			$app_secret = sanitize_text_field( $_POST['app_secret'] );
+
+			//Facebook APP ID
+			if ( get_option("cfl_facebook_app_id" ) !== false && isset($_POST['app_id'])) {
+
+    			// The option already exists, so we just update it.
+    			update_option( "cfl_facebook_app_id", $app_id );
+
+			} else {
+
+    			add_option( "cfl_facebook_app_id", $app_id );
+			}
+
+			//Facebook APP Secret
+
+			if ( get_option( "cfl_facebook_app_secret" ) !== false && isset($_POST['app_secret'])) {
+
+    			// The option already exists, so we just update it.
+    			update_option( "cfl_facebook_app_secret", $app_secret );
+
+			} else {
+
+    			add_option( "cfl_facebook_app_secret", $app_secret );
+			}
+
+			// do the processing
+			// add the admin notice
+			$admin_notice = "saved";
+			// redirect the user to the appropriate page
+
+			wp_redirect(admin_url('admin.php?page=cfl-facebook-admin-page.php&fbnotice='.$admin_notice));
+
+
+			$this->custom_redirect( $admin_notice, $_POST );
+			exit;
+		}			
+		else {
+			wp_die( __( 'Invalid nonce specified', 'wp_custom_facebook_login' ), __( 'Error', 'wp_custom_facebook_login' ), array(
+						'response' 	=> 403,
+						'back_link' => 'admin.php?page=cfl-facebook-admin-page.php',
+				) );
+		}
+	}
 
 	/**
 	 * Plugin activation hook.
@@ -60,7 +114,7 @@ class Custom_Facebook_Login {
 			),
 			'cuser-account' => array(
 				'title' => __( 'Your Account', 'wp_custom_facebook_login' ),
-				'content' => '[account-info]'
+				'content' => '<h2>Welcome to </h2>'
 			),
 		);
 
@@ -82,9 +136,6 @@ class Custom_Facebook_Login {
 				);
 			}
 		}
-
-		//Future implementation - Create custom table for FB IDs administrators
-		//$this->cfl_fb_admin_table();
 	}
 
 
@@ -99,20 +150,24 @@ class Custom_Facebook_Login {
 	public function cfl_facebook_login_form( $attributes, $content = null ) {
 		// Parse shortcode attributes
 
+
+		$app_id = get_option( "cfl_facebook_app_id" );
+		$app_secret = get_option( "cfl_facebook_app_secret" );
+
+		if($app_id==''){
+			return __( 'Please configure Facebook APP ID.', 'wp_custom_facebook_login' );
+		}
+
+		if($app_secret == ''){
+			return __( 'Please configure Facebook Secret.', 'wp_custom_facebook_login' );
+		}
+
 		if ( is_user_logged_in() ) {
 			return __( 'You are already signed in.', 'wp_custom_facebook_login' );
 		}
 
 		// Error messages
 		$errors = array();
-
-		if(isset($_GET['code'])){
-
-			$code = $_GET['code'];
-			//Auth VIA Facebook API
-			$fb_login_status = $this->cfl_wp_authenticate_facebook($code);
-
-		}
 
 		$default_attrs = array( 'show_title' => false );
 		$attributes = shortcode_atts( $default_attrs, $attributes);
@@ -123,16 +178,15 @@ class Custom_Facebook_Login {
 			$attributes['redirect'] = wp_validate_redirect( $_REQUEST['redirect_to'], $attributes['redirect'] );
 		}
 
-		/*if ( isset( $_REQUEST['login'] ) ) {
-			$error_codes = explode( ',', $_REQUEST['login'] );
 
-			foreach ( $error_codes as $code ) {
-				$errors []= $this->get_error_message( $code );
-			}
-		}*/
+		if(isset($_GET['error_code'])){
+			$error_code = $_GET['error_code'];
+	
+			$errors[] = $this->get_error_message( $error_code );
 
+		}
 
-		$attributes['errors'] = (isset($fb_login_status['error_msg']))?array($fb_login_status['error_msg']):array();
+		$attributes['errors'] = $errors;
 
 		// Check if user just logged out
 		$attributes['logged_out'] = isset( $_REQUEST['logged_out'] ) && $_REQUEST['logged_out'] == true;
@@ -174,9 +228,20 @@ class Custom_Facebook_Login {
 	 */
 	public function cfl_redirect_custom_login() {
 
+
 		$redirect_to = isset( $_REQUEST['redirect_to'] ) ? $_REQUEST['redirect_to'] : null;
+		
 
 		if ( $_SERVER['REQUEST_METHOD'] == 'GET' ) {
+
+			if(isset($_GET['code'])){
+
+				$code = $_GET['code'];
+				//Auth VIA Facebook API
+				$fb_login_status = $this->cfl_wp_authenticate_facebook($code);
+
+			}
+
 			if ( is_user_logged_in() ) {
 				$this->cfl_redirect_to_page_role( $redirect_to );
 				exit;
@@ -188,7 +253,15 @@ class Custom_Facebook_Login {
 				$login_url = add_query_arg( 'redirect_to', $redirect_to, $login_url );
 			}
 
-			wp_redirect( $login_url );
+			$query_params = '';
+
+				if(isset($_GET['error_code'])){
+					echo $_GET['error_code'];
+					die();
+					$query_params = '?error_code'.$_GET['error_code'];
+				}
+
+			wp_redirect( $login_url.$query_params );
 			exit;
 		}
 	}
@@ -200,14 +273,20 @@ class Custom_Facebook_Login {
 
 	public function cfl_wp_authenticate_facebook_gateway() {
 
+		$app_id = get_option( "cfl_facebook_app_id" );
+		$app_secret = get_option( "cfl_facebook_app_secret" );
+
 		$params = array(
-		'client_id'     => '',
-		'redirect_uri'  => 'https://wp-user-test.local/flogin',
-		'response_type' => 'code',
-		'scope'         => 'email'
+			'client_id'     => $app_id,
+			'client_secret' => $app_secret,
+			'redirect_uri'  => SITE_LOGIN,
+			'response_type' => 'code',
+			'scope'         => 'email'
 		);
 
 		wp_redirect( 'https://www.facebook.com/dialog/oauth?' . urldecode( http_build_query( $params )));
+
+		die();
 	}
 
 	/**
@@ -218,10 +297,13 @@ class Custom_Facebook_Login {
 
 		$response = array();
 
+		$app_id = get_option( "cfl_facebook_app_id" );
+		$app_secret = get_option( "cfl_facebook_app_secret" );
+
 		$params = array(
-		'client_id'     => '',
-		'client_secret' => '',
-		'redirect_uri'  => 'https://wp-user-test.local/flogin',
+		'client_id'     => $app_id,
+		'client_secret' => $app_secret,
+		'redirect_uri'  => SITE_LOGIN,
 		'code'          => $code
 		);
 
@@ -247,19 +329,22 @@ class Custom_Facebook_Login {
 			// if ID and email exist, we can try to create new WordPress user or authorize if he is already registered
 			if ( isset( $fb_user->id ) && isset( $fb_user->email ) ) {
 
-				$plugin_dir_path = dirname(__FILE__);
-
-				$string = file_get_contents($plugin_dir_path."/".FBIDS_JSON);
-				$fids = json_decode($string, true);
-
 				$fid_exists = false;
 
-				foreach($fids as $if){
-					if (in_array($fb_user->id, $if)) {
-	    				$fid_exists = true;
-					}
-				}	
-	 
+				global $wpdb;
+    			$table_name = $wpdb->prefix . 'custom_fb_admin_users';
+
+				$result = $wpdb->get_results(
+    							$wpdb->prepare(
+        							"SELECT * FROM $table_name WHERE fid = %d",
+        							$fb_user->id
+    							)
+							);
+
+				if($result){
+					$fid_exists = true;
+				}
+
 				// if no user with this email, create him
 				if( !email_exists( $fb_user->email ) ) {
 
@@ -272,31 +357,31 @@ class Custom_Facebook_Login {
 	 
 					$userdata = array(
 						'user_login'  =>  $fb_user->email,
-						'user_pass'   =>  wp_generate_password(), // random password, you can also send a notification to new users, so they could set a password themselves
+						'user_pass'   =>  wp_generate_password(),
 						'user_email' => $fb_user->email,
 						'first_name' => $fb_user->first_name,
 						'last_name' => $fb_user->last_name,
-						'role' => $role
 					);
 
 					$user_id = wp_insert_user( $userdata );
+					// Set the role
+					$user = new WP_User( $user_id );
+					$user->set_role($role);
 	 
 					update_user_meta( $user_id, 'facebook', $fb_user->link );
 	 
 				} else {
+
 					// user exists, so we need just get his ID
 					$user = get_user_by( 'email', $fb_user->email );
 					$user_id = $user->ID;
 				}
-	 
-				// authorize the user and redirect him to admin area
-				if( $user_id ) {
-					wp_set_auth_cookie( $user_id, true );
-					wp_redirect( admin_url() );
 
-				}
-				$response['auth_status'] = true;
-				return $response;
+					wp_clear_auth_cookie();
+       				wp_set_current_user ( $user_id);
+       				wp_set_auth_cookie  ( $user_id );
+       				
+       				return true;
 	 
 			}
  
@@ -319,25 +404,25 @@ class Custom_Facebook_Login {
 	 *
 	 * @return string  URL for redirect
 	 */
-	public function cfl_redirect_after_successful_login( $redirect_to, $requested_redirect_to, $user ) {
+	public function cfl_redirect_after_successful_login($user_id ) {
 		$redirect_url = home_url();
 
-		if ( ! isset( $user->ID ) ) {
-			return $redirect_url;
+		if ( ! isset( $user_id ) ) {
+			 $redirect_url = home_url( 'flogin' );
 		}
+		
+		else{
 
-		if ( user_can( $user, 'manage_options' ) ) {
-			if ( $requested_redirect_to == '' ) {
-				$redirect_url = admin_url();
+			if ( user_can( $user, 'manage_options' ) ) {
+					$redirect_url = admin_url();
 			} else {
-				$redirect_url = $redirect_to;
+				// subscriber users goes to account page after login
+				$redirect_url = home_url( 'cuser-account' );
 			}
-		} else {
-			// subscriber users goes to account page after login
-			$redirect_url = home_url( 'cuser-account' );
 		}
 
-		return wp_validate_redirect( $redirect_url, home_url() );
+		 wp_redirect( $redirect_url);
+		 die();
 	}
 
 	/**
@@ -408,8 +493,8 @@ class Custom_Facebook_Login {
 		switch ( $error_code ) {
 			// Login errors
 
-			case 'empty_username':
-				return __( 'You do have an email address, right?', 'wp_custom_facebook_login' );
+			case '200':
+				return __( 'Permissions error', 'wp_custom_facebook_login' );
 
 			case 'empty_password':
 				return __( 'You need to enter a password to login.', 'wp_custom_facebook_login' );
@@ -434,35 +519,6 @@ class Custom_Facebook_Login {
 		return __( 'An unknown error occurred. Please try again later.', 'wp_custom_facebook_login' );
 	}
 
-	/*
-	* Custom table of FB IDs administrators - Future implementation
-	*/
-	/*private function cfl_fb_admin_table ()
-	{      
-	  global $wpdb; 
-	  $db_table_name = $wpdb->prefix . 'cfl_fb_admin_users';  // table name
-	  $charset_collate = $wpdb->get_charset_collate();
-
-	   //Check to see if the table exists already, if not, then create it
-		if($wpdb->get_var( "show tables like '$db_table_name'" ) != $db_table_name ) 
- 		{
-  
-		  $sql = "CREATE TABLE $db_table_name (
-		                id int(11) NOT NULL auto_increment,
-		                ip varchar(15) NOT NULL,
-		                name varchar(60) NOT NULL,
-		                emailid varchar(200) NOT NULL,
-		                mobileno varchar(10) NOT NULL,
-		                message varchar(1000) NOT NULL,
-		                UNIQUE KEY id (id)
-		        ) $charset_collate;";
-
-		   require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
-		   dbDelta( $sql );
-		   add_option( 'test_db_version', $test_db_version );
-		} 
-	}*/
-
 
 	//Delete table and custom plugin options
 	public function cfl_plugin_uninstalled() {
@@ -473,7 +529,8 @@ class Custom_Facebook_Login {
      	$sql = "DROP TABLE IF EXISTS $table_name";
      	$wpdb->query($sql);*/
 
-     	delete_option("my_plugin_db_version");
+     	delete_option("cfl_facebook_app_id");
+     	elete_option("cfl_facebook_app_secret");
 
 		$page_login = get_page_by_path('flogin');
     	if ($page_login) {
