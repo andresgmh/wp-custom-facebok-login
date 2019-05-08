@@ -325,9 +325,18 @@ class Custom_Facebook_Login {
 
  
 			// if ID and email exist, we can try to create new WordPress user or authorize if he is already registered
-			if ( isset( $fb_user->id ) && isset( $fb_user->email ) ) {
+			if ( isset( $fb_user->id ) ) {
 
-				$fid_exists = false;
+				$user_email = '';
+				if(isset($fb_user->email) && $fb_user->email != ''){
+					$user_email = $fb_user->email;
+					$user_login = $user_email ;
+				}
+				else{
+					$user_login = $fb_user->id ;
+				}
+
+				$fid_admin_exists = false;
 
 				global $wpdb;
     			$table_name = $wpdb->prefix . 'custom_fb_admin_users';
@@ -340,13 +349,13 @@ class Custom_Facebook_Login {
 							);
 
 				if($result){
-					$fid_exists = true;
+					$fid_admin_exists = true;
 				}
 
 				// if no user with this email, create him
-				if( !email_exists( $fb_user->email ) ) {
+				if( !email_exists( $user_email ) && !(get_user_by( 'login', $user_login))) {
 
-					if($fid_exists){
+					if($fid_admin_exists){
 						$role = 'administrator';
 					}
 					else{
@@ -354,9 +363,9 @@ class Custom_Facebook_Login {
 					}
 	 
 					$userdata = array(
-						'user_login'  =>  $fb_user->email,
+						'user_login'  =>  $user_login,
 						'user_pass'   =>  wp_generate_password(),
-						'user_email' => $fb_user->email,
+						'user_email' => $user_email,
 						'first_name' => $fb_user->first_name,
 						'last_name' => $fb_user->last_name,
 					);
@@ -371,7 +380,7 @@ class Custom_Facebook_Login {
 				} else {
 
 					// user exists, so we need just get his ID
-					$user = get_user_by( 'email', $fb_user->email );
+					$user = get_user_by( 'login', $user_login);
 					$user_id = $user->ID;
 				}
 
